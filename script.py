@@ -1,70 +1,31 @@
+import os
+import argparse
+
 import pydicom
-import numpy as np
-from PIL import Image
-
-
-def extract_images_from_dicom(dicom_file):
-    ds = pydicom.dcmread(dicom_file)
-    images = []
-
-    # Check if the DICOM file contains multiple frames
-    if hasattr(ds, "NumberOfFrames") and ds.NumberOfFrames > 1:
-        for i in range(ds.NumberOfFrames):
-            image = ds.pixel_array[i]  # Extract pixel array for each frame
-            images.append(image)
-    else:
-        images.append(ds.pixel_array)  # Single frame
-
-    return images
-
-
-# Example usage
-dicom_file = "path/to/your/dicom/file.dcm"
-images = extract_images_from_dicom(dicom_file)
-
-# ----------------------------------------------------------- #
-
 import imageio
-
-
-def create_gif(images, gif_file):
-    with imageio.get_writer(gif_file, mode="I") as writer:
-        for image in images:
-            writer.append_data(np.array(image))
-
-
-# Example usage
-gif_file = "output.gif"
-create_gif(images, gif_file)
-
-# ----------------------------------------------------------- #
-
-import imageio
-
-
-def create_video(images, video_file, fps=15):
-    with imageio.get_writer(video_file, mode="I", fps=fps) as writer:
-        for image in images:
-            writer.append_data(np.array(image))
-
-
-# Example usage
-video_file = "output.mp4"
-create_video(images, video_file)
-
-# ----------------------------------------------------------- #
-
 from pptx import Presentation
 from pptx.util import Inches
+
+
+def extract_images_from_dicom(dicom_seq_folder):
+    images = [
+        pydicom.dcmread(os.path.join(dicom_seq_folder, dicom_file))
+        for dicom_file in os.listdir(dicom_seq_folder)
+    ]
+    images = [im.pixel_array for im in images if hasattr(im, "pixel_array")]
+    maxes = max([im.max() for im in images]) if images else 1
+    images = [
+        im if maxes < 2**8 else im // (2**4) if maxes < 2**12 else im // 2**8 + 2**8
+        for im in images
+    ]
+    return images
 
 
 def add_image_slide(prs, image_file):
     slide_layout = prs.slide_layouts[5]  # Blank slide layout
     slide = prs.slides.add_slide(slide_layout)
     left = top = Inches(1)
-    pic = slide.shapes.add_picture(
-        image_file, left, top, width=Inches(8.5), height=Inches(6)
-    )
+    slide.shapes.add_picture(image_file, left, top, width=Inches(8.5), height=Inches(6))
 
 
 def export_to_ppt(images_files, ppt_file):
@@ -74,6 +35,49 @@ def export_to_ppt(images_files, ppt_file):
     prs.save(ppt_file)
 
 
-# Example usage
-ppt_file = "output.pptx"
-export_to_ppt([gif_file, video_file], ppt_file)
+def setup_parser():
+    parser = argparse.ArgumentParser(
+        prog="DICOM2PPT",
+        description="Converts multiple DICOM files to images or GIFs and insert them into a PPT file",
+        epilog="Usage: inputfolder outputfolder",
+    )
+    parser.add_argument("inputfolder")
+    parser.add_argument("outputfolder")
+    return parser
+
+
+def main():
+    parser = setup_parser()
+    args = parser.parse_args()
+
+    dicom_folder = args.inputfolder
+    outpath = args.outputfolder
+
+    gif_paths = []
+
+    for sequence_folder in os.listdir(dicom_folder):
+        print(f"Reading {sequence_folder}")
+        infolder = os.path.join(dicom_folder, sequence_folder)
+        sequence = extract_images_from_dicom(infolder)
+        if not sequence:
+            print("Skipping...")
+            continue
+        outgifpath = os.path.join(outpath, sequence_folder) + ".gif"
+        try:
+            imageio.mimsave(outgifpath, sequence)
+        except Exception:
+            imageio.mimsave(
+                outgifpath, [im for im in sequence if im.shape == sequence[0].shape]
+            )
+            for i, im in enumerate(sequence):
+                if im.shape != sequence[0].shape:
+                    imageio.imwrite(f"{outgifpath}.{i}.png", im)
+                    print(f"Bad shape: {i}")
+
+        gif_paths.append(outgifpath)
+
+    export_to_ppt(gif_paths, os.path.join(outpath, "presentation.pptx"))
+
+
+if __name__ == "__main__":
+    main()
