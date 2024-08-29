@@ -15,9 +15,10 @@ def extract_images_from_dicom(dicom_seq_folder):
     images = [im.pixel_array for im in images if hasattr(im, "pixel_array")]
     maxes = max([im.max() for im in images]) if images else 1
     images = [
-        im if maxes < 2**8 else im // (2**4) if maxes < 2**12 else im // 2**8 + 2**8
+        im if maxes < 2**8 else im // (2**4) if maxes < 2**12 else im // 2**8 + 2**7
         for im in images
     ]
+    images = [im.astype("uint8") for im in images]
     return images
 
 
@@ -80,21 +81,28 @@ def main():
         if not sequence:
             print("Skipping...")
             continue
-        format = ".mp4"  # TODO:
+        first_frame_shape = sequence[0].shape[:2]
+        format, codec = ".mp4", "mp4v"
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        fps = 1.0
         output_media_path = os.path.join(outpath, sequence_folder) + format
-        try:
-            pass
-            # imageio.mimsave(output_media_path, sequence) # TODO:
-        except Exception:
-            # imageio.mimsave(output_media_path, [im for im in sequence if im.shape == sequence[0].shape]) # TODO:
-            for i, im in enumerate(sequence):
-                if im.shape != sequence[0].shape:
-                    # imageio.imwrite(f"{output_media_path}.{i}.png", im)
-                    print(f"Bad shape: {i}")
+        output_writer = cv2.VideoWriter(
+            output_media_path, fourcc, fps, first_frame_shape
+        )
+        assert output_writer.isOpened()
+        for i, frame in enumerate(sequence):
+            try:
+                # imageio.mimsave(output_media_path, sequence)
+                output_writer.write(frame)
+            except Exception as e:
+                # imageio.mimsave(output_media_path, [im for im in sequence if im.shape == sequence[0].shape])
+                # imageio.imwrite(f"{output_media_path}.{i}.png", im)
+                print(f"Exception frame ({i}): {e} \n\t{frame.max(), frame.min()}")
 
         media_paths.append(output_media_path)
-
+        output_writer.release()
     export_to_ppt(media_paths, os.path.join(outpath, "presentation.pptx"))
+    # cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
