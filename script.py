@@ -3,6 +3,7 @@ import argparse
 
 import pydicom
 import cv2
+from cv2 import VideoWriter_fourcc
 from pptx import Presentation
 from pptx.util import Inches
 
@@ -81,9 +82,9 @@ def main():
         if not sequence:
             print("Skipping...")
             continue
-        first_frame_shape = sequence[0].shape[:2]
+        first_frame_shape = sequence[0].shape[1::-1]
         format, codec = ".mp4", "mp4v"
-        fourcc = cv2.VideoWriter_fourcc(*codec)
+        fourcc = VideoWriter_fourcc(*codec)
         fps = 1.0
         output_media_path = os.path.join(outpath, sequence_folder) + format
         output_writer = cv2.VideoWriter(
